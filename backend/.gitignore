@@ -1,0 +1,10 @@
+# Backend
+node_modules/
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+.DS_Store
