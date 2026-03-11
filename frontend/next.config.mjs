@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+    output: 'standalone', // Required for Docker / Coolify deployment
+};
 
 export default nextConfig;
