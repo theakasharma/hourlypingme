@@ -21,7 +21,7 @@ app.use('/api/reminder', reminderRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) });
 });
 
 // Connect to MongoDB and start server
