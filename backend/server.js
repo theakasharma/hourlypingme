@@ -1,3 +1,5 @@
+// Set timezone to India Standard Time (IST)
+process.env.TZ = 'Asia/Kolkata';
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
