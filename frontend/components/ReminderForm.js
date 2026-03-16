@@ -60,6 +60,9 @@ export default function ReminderForm({ initial = null, onSuccess }) {
       if (isEdit) {
         await axios.post(`/api/reminder/update/${initial._id}`, form);
         toast.success('Reminder updated!');
+
+        // Reschedule browser notifications for the updated reminder time
+        scheduleReminderNotifications(form.name, form.phone, form.reminderTime);
       } else {
         await axios.post('/api/reminder/create', form);
         toast.success('Reminder created & synced to Google Calendar!');

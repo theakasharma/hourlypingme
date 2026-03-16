@@ -98,9 +98,21 @@ router.post('/update/:id', async (req, res) => {
     const { id } = req.params;
     const { name, phone, notes, reminderTime, status } = req.body;
 
+    // Build update object
+    const updateData = { name, phone, notes, reminderTime, status };
+
+    // If reminderTime changed to a future time, reset status to Pending
+    // so that missed/completed reminders become active again
+    if (reminderTime) {
+      const newTime = new Date(reminderTime);
+      if (newTime > new Date()) {
+        updateData.status = 'Pending';
+      }
+    }
+
     const reminder = await Reminder.findByIdAndUpdate(
       id,
-      { name, phone, notes, reminderTime, status },
+      updateData,
       { new: true, runValidators: true }
     );
 
