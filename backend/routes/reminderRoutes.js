@@ -1,9 +1,13 @@
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const Reminder = require('../models/Reminder');
 const { createCalendarEvent } = require('../utils/googleCalendar');
+const { protect } = require('../middleware/authMiddleware');
 
-// POST /api/reminder/create
+// Apply auth protection to every reminder route
+router.use(protect);
+
+// ─── POST /api/reminder/create ────────────────────────────────────────────────
 router.post('/create', async (req, res) => {
   try {
     const { name, phone, notes, reminderTime } = req.body;
@@ -12,10 +16,20 @@ router.post('/create', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, phone, and reminder time are required.' });
     }
 
-    const reminder = new Reminder({ name, phone, notes, reminderTime });
+    const reminder = new Reminder({
+      userId: req.user._id,
+      name,
+      phone,
+      notes,
+      reminderTime,
+    });
 
-    // Try to create Google Calendar event
-    const calResult = await createCalendarEvent({ name, phone, notes, reminderTime });
+    // Try to create a Google Calendar event using the user's own tokens
+    const userTokens = {
+      accessToken:  req.user.googleAccessToken,
+      refreshToken: req.user.googleRefreshToken,
+    };
+    const calResult = await createCalendarEvent({ name, phone, notes, reminderTime }, userTokens);
     if (calResult.success) {
       reminder.googleEventId = calResult.eventId;
     }
@@ -25,8 +39,8 @@ router.post('/create', async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Reminder created successfully',
-      data: reminder,
-      calendarEvent: calResult.success ? 'Created' : 'Skipped (check Google credentials)',
+      data:    reminder,
+      calendarEvent: calResult.success ? 'Created' : 'Skipped (sign in with Google to enable)',
     });
   } catch (error) {
     console.error('Create reminder error:', error);
@@ -34,55 +48,51 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// GET /api/reminder/list
+// ─── GET /api/reminder/list ───────────────────────────────────────────────────
 router.get('/list', async (req, res) => {
   try {
     const { status, date } = req.query;
-    const filter = {};
+    // Every query is scoped to the logged-in user
+    const filter = { userId: req.user._id };
 
     if (status) filter.status = status;
 
     if (date === 'today') {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end   = new Date(); end.setHours(23, 59, 59, 999);
       filter.reminderTime = { $gte: start, $lte: end };
     } else if (date === 'upcoming') {
-      const now = new Date();
-      filter.reminderTime = { $gte: now };
+      filter.reminderTime = { $gte: new Date() };
       filter.status = 'Pending';
     } else if (date === 'missed') {
-      const now = new Date();
-      // Auto-update missed reminders
+      // Auto-update missed reminders for this user
       await Reminder.updateMany(
-        { status: 'Pending', reminderTime: { $lt: now } },
+        { userId: req.user._id, status: 'Pending', reminderTime: { $lt: new Date() } },
         { $set: { status: 'Missed' } }
       );
       filter.status = 'Missed';
     }
 
-    // Auto-mark as missed for general list
-    const now = new Date();
+    // Auto-mark past pending reminders as missed (scoped to user)
     await Reminder.updateMany(
-      { status: 'Pending', reminderTime: { $lt: now } },
+      { userId: req.user._id, status: 'Pending', reminderTime: { $lt: new Date() } },
       { $set: { status: 'Missed' } }
     );
 
     const reminders = await Reminder.find(filter).sort({ reminderTime: 1 });
 
-    // Stats for dashboard
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // Dashboard stats — scoped to this user
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
+
+    const userToday = { userId: req.user._id, reminderTime: { $gte: todayStart, $lte: todayEnd } };
 
     const stats = {
-      totalToday: await Reminder.countDocuments({ reminderTime: { $gte: todayStart, $lte: todayEnd } }),
-      pendingToday: await Reminder.countDocuments({ reminderTime: { $gte: todayStart, $lte: todayEnd }, status: 'Pending' }),
-      completedToday: await Reminder.countDocuments({ reminderTime: { $gte: todayStart, $lte: todayEnd }, status: 'Completed' }),
-      missedToday: await Reminder.countDocuments({ reminderTime: { $gte: todayStart, $lte: todayEnd }, status: 'Missed' }),
-      totalAll: await Reminder.countDocuments(),
+      totalToday:     await Reminder.countDocuments(userToday),
+      pendingToday:   await Reminder.countDocuments({ ...userToday, status: 'Pending' }),
+      completedToday: await Reminder.countDocuments({ ...userToday, status: 'Completed' }),
+      missedToday:    await Reminder.countDocuments({ ...userToday, status: 'Missed' }),
+      totalAll:       await Reminder.countDocuments({ userId: req.user._id }),
     };
 
     return res.json({ success: true, data: reminders, stats });
@@ -92,33 +102,29 @@ router.get('/list', async (req, res) => {
   }
 });
 
-// POST /api/reminder/update/:id
+// ─── POST /api/reminder/update/:id ───────────────────────────────────────────
 router.post('/update/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, phone, notes, reminderTime, status } = req.body;
 
-    // Build update object
-    const updateData = { name, phone, notes, reminderTime, status };
-
-    // If reminderTime changed to a future time, reset status to Pending
-    // so that missed/completed reminders become active again
-    if (reminderTime) {
-      const newTime = new Date(reminderTime);
-      if (newTime > new Date()) {
-        updateData.status = 'Pending';
-      }
-    }
-
-    const reminder = await Reminder.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!reminder) {
+    // Ownership check
+    const existing = await Reminder.findById(id);
+    if (!existing) {
       return res.status(404).json({ success: false, message: 'Reminder not found' });
     }
+    if (String(existing.userId) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to update this reminder.' });
+    }
+
+    const updateData = { name, phone, notes, reminderTime, status };
+
+    // Reset to Pending if new time is in the future
+    if (reminderTime && new Date(reminderTime) > new Date()) {
+      updateData.status = 'Pending';
+    }
+
+    const reminder = await Reminder.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
 
     return res.json({ success: true, message: 'Reminder updated', data: reminder });
   } catch (error) {
@@ -127,16 +133,20 @@ router.post('/update/:id', async (req, res) => {
   }
 });
 
-// POST /api/reminder/delete/:id
+// ─── POST /api/reminder/delete/:id ───────────────────────────────────────────
 router.post('/delete/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const reminder = await Reminder.findByIdAndDelete(id);
+    const existing = await Reminder.findById(id);
 
-    if (!reminder) {
+    if (!existing) {
       return res.status(404).json({ success: false, message: 'Reminder not found' });
     }
+    if (String(existing.userId) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to delete this reminder.' });
+    }
 
+    await Reminder.findByIdAndDelete(id);
     return res.json({ success: true, message: 'Reminder deleted successfully' });
   } catch (error) {
     console.error('Delete reminder error:', error);
@@ -144,18 +154,23 @@ router.post('/delete/:id', async (req, res) => {
   }
 });
 
-// POST /api/reminder/complete/:id - quick complete action
+// ─── POST /api/reminder/complete/:id ─────────────────────────────────────────
 router.post('/complete/:id', async (req, res) => {
   try {
+    const existing = await Reminder.findById(req.params.id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Reminder not found' });
+    }
+    if (String(existing.userId) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to complete this reminder.' });
+    }
+
     const reminder = await Reminder.findByIdAndUpdate(
       req.params.id,
       { status: 'Completed' },
       { new: true }
     );
-
-    if (!reminder) {
-      return res.status(404).json({ success: false, message: 'Reminder not found' });
-    }
 
     return res.json({ success: true, message: 'Marked as completed', data: reminder });
   } catch (error) {

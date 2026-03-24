@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import ReminderTable from '@/components/ReminderTable';
 import Link from 'next/link';
+import { getAuthHeaders } from '@/lib/auth';
 
 const FILTERS = ['All', 'Pending', 'Completed', 'Missed'];
 
@@ -17,7 +18,7 @@ export default function RemindersPage() {
   const fetchReminders = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/reminder/list');
+      const { data } = await axios.get('/api/reminder/list', { headers: getAuthHeaders() });
       setReminders(data.data || []);
     } catch {
       setReminders([]);

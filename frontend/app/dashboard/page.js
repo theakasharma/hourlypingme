@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import Link from 'next/link';
 import { format } from 'date-fns';
+import { getAuthHeaders } from '@/lib/auth';
 
 const StatCard = ({ icon, label, value, color, sub }) => (
   <div className={`stat-card flex items-center gap-4 group`}>
@@ -25,7 +26,7 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const { data } = await axios.get('/api/reminder/list');
+      const { data } = await axios.get('/api/reminder/list', { headers: getAuthHeaders() });
       setReminders(data.data || []);
       setStats(data.stats || null);
     } catch {

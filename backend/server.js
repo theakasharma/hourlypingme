@@ -4,8 +4,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const session = require('express-session');
+const passport = require('passport');
 
 const reminderRoutes = require('./routes/reminderRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,7 +21,20 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Session (needed for passport OAuth redirect flow)
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'calldesk_session_secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false, maxAge: 1000 * 60 * 60 * 24 * 7 }, // 7 days
+}));
+
+// Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
 // Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/reminder', reminderRoutes);
 
 // Health check

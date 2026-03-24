@@ -5,6 +5,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import ReminderForm from './ReminderForm';
+import { getAuthHeaders } from '@/lib/auth';
 
 const STATUS_BADGE = {
   Pending:   'badge badge-pending',
@@ -26,7 +27,7 @@ export default function ReminderTable({ reminders = [], onRefresh }) {
     if (!confirm('Delete this reminder?')) return;
     setDeletingId(id);
     try {
-      await axios.post(`/api/reminder/delete/${id}`);
+      await axios.post(`/api/reminder/delete/${id}`, {}, { headers: getAuthHeaders() });
       toast.success('Reminder deleted');
       onRefresh();
     } catch {
@@ -38,7 +39,7 @@ export default function ReminderTable({ reminders = [], onRefresh }) {
 
   const handleComplete = async (id) => {
     try {
-      await axios.post(`/api/reminder/complete/${id}`);
+      await axios.post(`/api/reminder/complete/${id}`, {}, { headers: getAuthHeaders() });
       toast.success('Marked as completed ✅');
       onRefresh();
     } catch {

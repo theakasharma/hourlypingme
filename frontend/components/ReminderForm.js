@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { format, addMinutes, addDays } from 'date-fns';
 import { scheduleReminderNotifications } from '@/lib/reminderScheduler';
 import { requestNotificationPermission } from '@/lib/notification';
+import { getAuthHeaders } from '@/lib/auth';
 
 export default function ReminderForm({ initial = null, onSuccess }) {
   const router = useRouter();
@@ -58,13 +59,13 @@ export default function ReminderForm({ initial = null, onSuccess }) {
     setLoading(true);
     try {
       if (isEdit) {
-        await axios.post(`/api/reminder/update/${initial._id}`, form);
+        await axios.post(`/api/reminder/update/${initial._id}`, form, { headers: getAuthHeaders() });
         toast.success('Reminder updated!');
 
         // Reschedule browser notifications for the updated reminder time
         scheduleReminderNotifications(form.name, form.phone, form.reminderTime);
       } else {
-        await axios.post('/api/reminder/create', form);
+        await axios.post('/api/reminder/create', form, { headers: getAuthHeaders() });
         toast.success('Reminder created & synced to Google Calendar!');
 
         // Schedule multi-step browser notifications before the call time
